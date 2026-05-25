@@ -1,9 +1,11 @@
 import numpy as np
-from afm_utils import create_fov_image, update_title
+from afm_utils import create_stage_fov, get_scale_bar_geometry, render_camera_frame, rotate_camera_frame, update_title
 
 class AFMAnimation:
-    def __init__(self, state, stage, data, ax, img, ideal_line, hyst_line, 
-                 artifact_layer, fig, get_tip_func):
+    def __init__(self, state, stage, data, ax, img, ideal_line, hyst_line,
+                 artifact_layer, fig, get_tip_func, scale_bar_black=None, scale_bar_white=None,
+                 scale_bar_text=None,
+                 status_update_func=None):
         self.state = state
         self.stage = stage
         self.data = data
@@ -14,6 +16,10 @@ class AFMAnimation:
         self.artifact_layer = artifact_layer
         self.fig = fig
         self.get_tip = get_tip_func
+        self.scale_bar_black = scale_bar_black
+        self.scale_bar_white = scale_bar_white
+        self.scale_bar_text = scale_bar_text
+        self.status_update = status_update_func
     
     def update(self, frame):
         # 自动扫描
@@ -73,16 +79,22 @@ class AFMAnimation:
             return self.img, self.ideal_line, self.hyst_line
         
         # 视野更新
-        ix = int(np.clip(self.state.x, 0, self.state.width_um - self.state.fov_width))
-        iy = int(np.clip(self.state.y, 0, self.state.height_um - self.state.fov_height))
-        fov = self.state.sample[iy:iy+self.state.fov_height, ix:ix+self.state.fov_width].copy()
-        
-        if self.state.show_artifact and self.artifact_layer is not None:
-            artifact_fov = self.artifact_layer.get_display()[iy:iy+self.state.fov_height, ix:ix+self.state.fov_width]
-            fov = np.maximum(fov, artifact_fov)
-        
-        self.img.set_data(fov)
+        fov, outside_mask, ix, iy = create_stage_fov(
+            self.state.surface_image,
+            self.artifact_layer,
+            self.state.show_artifact,
+            self.state.x,
+            self.state.y,
+            self.state.fov_width,
+            self.state.fov_height,
+        )
+        self.state.current_fov_raw = fov.copy()
+        display_fov = render_camera_frame(fov, self.state.camera_resolution, outside_mask=outside_mask)
+        display_fov = rotate_camera_frame(display_fov, self.state.surface_tilt_angle)
+
+        self.img.set_data(display_fov)
         self.img.set_extent([ix, ix+self.state.fov_width, iy+self.state.fov_height, iy])
+        self._update_scale_bar(ix, iy, self.state.fov_width, self.state.fov_height)
         
         # 记录轨迹
         if not self.state.tilting:
@@ -98,31 +110,91 @@ class AFMAnimation:
         
         tip_x, tip_y = self.get_tip()
         update_title(self.ax, self.fig, self.state.pi_mode, self.state.target_x, tip_x)
-        
+        if self.status_update is not None:
+            self.status_update()
+
         return self.img, self.ideal_line, self.hyst_line
     
     def _handle_zoom(self):
         self.state.zoom_progress += 1
         alpha = self.state.zoom_progress / self.state.zoom_steps
         scale = 1 - 0.5 * alpha if self.state.zoom_direction == 1 else 1 + 0.5 * alpha
-        
-        tip_x, tip_y = self.get_tip()
-        rel_x = (tip_x - self.state.x) / self.state.fov_width
-        rel_y = (tip_y - self.state.y) / self.state.fov_height
-        new_width = max(50, int(self.state.fov_width * scale))
-        new_height = max(50, int(self.state.fov_height * scale))
-        x_new = tip_x - rel_x * new_width
-        y_new = tip_y - rel_y * new_height
-        x_new = np.clip(x_new, 0, self.state.width_um - new_width)
-        y_new = np.clip(y_new, 0, self.state.height_um - new_height)
-        
-        ix, iy = int(x_new), int(y_new)
-        fov = self.state.sample[iy:iy+new_height, ix:ix+new_width]
-        self.img.set_data(fov)
+
+        if self.state.zoom_center_x is None or self.state.zoom_center_y is None:
+            self.state.zoom_center_x = self.state.x + self.state.fov_width / 2.0
+            self.state.zoom_center_y = self.state.y + self.state.fov_height / 2.0
+            self.state.zoom_base_width = self.state.fov_width
+            self.state.zoom_base_height = self.state.fov_height
+
+        base_width = self.state.zoom_base_width or self.state.fov_width
+        base_height = self.state.zoom_base_height or self.state.fov_height
+        center_x = self.state.zoom_center_x
+        center_y = self.state.zoom_center_y
+
+        scale = min(scale, self.state.max_zoom_out_scale)
+
+        new_width = max(50, int(round(base_width * scale)))
+        new_height = max(50, int(round(base_height * scale)))
+        x_new = center_x - new_width / 2.0
+        y_new = center_y - new_height / 2.0
+        fov, outside_mask, ix, iy = create_stage_fov(
+            self.state.surface_image,
+            self.artifact_layer,
+            self.state.show_artifact,
+            x_new,
+            y_new,
+            new_width,
+            new_height,
+        )
+        self.state.current_fov_raw = fov.copy()
+        display_fov = render_camera_frame(fov, self.state.camera_resolution, outside_mask=outside_mask)
+        display_fov = rotate_camera_frame(display_fov, self.state.surface_tilt_angle)
+        self.img.set_data(display_fov)
         self.img.set_extent([x_new, x_new+new_width, y_new+new_height, y_new])
+        self._update_scale_bar(x_new, y_new, new_width, new_height)
         
         if self.state.zoom_progress >= self.state.zoom_steps:
             self.state.zooming = False
             self.state.zoom_progress = 0
             self.state.x, self.state.y = x_new, y_new
             self.state.fov_width, self.state.fov_height = new_width, new_height
+            # Optical zoom should not trigger any mechanical catch-up motion afterward.
+            self.state.target_x = self.state.x
+            self.state.target_y = self.state.y
+            self.state.smooth_move_active = False
+            if self.state.pi_mode:
+                self.stage.reset(self.state.x, self.state.y)
+                self.stage.cmd_x = self.state.x
+                self.stage.cmd_y = self.state.y
+            self.state.zoom_anchor_tip_x = None
+            self.state.zoom_anchor_tip_y = None
+            self.state.zoom_anchor_rel_x = None
+            self.state.zoom_anchor_rel_y = None
+            self.state.zoom_base_width = None
+            self.state.zoom_base_height = None
+            self.state.zoom_center_x = None
+            self.state.zoom_center_y = None
+
+    def _update_scale_bar(self, x_origin, y_origin, fov_width, fov_height):
+        if self.scale_bar_black is None or self.scale_bar_white is None or self.scale_bar_text is None:
+            return
+
+        geometry = get_scale_bar_geometry(
+            x_origin,
+            y_origin,
+            fov_width,
+            fov_height,
+            self.state.scale_bar_total_um,
+            self.state.scale_bar_segments,
+        )
+        black_segment = geometry["segments"][0]
+        self.scale_bar_black.set_data([black_segment[0], black_segment[1]], [geometry["y"], geometry["y"]])
+
+        if len(geometry["segments"]) > 1:
+            white_segment = geometry["segments"][1]
+            self.scale_bar_white.set_data([white_segment[0], white_segment[1]], [geometry["y"], geometry["y"]])
+        else:
+            self.scale_bar_white.set_data([], [])
+
+        self.scale_bar_text.set_position(geometry["text_pos"])
+        self.scale_bar_text.set_text(geometry["label"])

@@ -2,9 +2,14 @@
 artefact_detector.py - AI object detector (AI only, no traditional fallback)
 """
 
+from pathlib import Path
+
 import numpy as np
 import cv2
 from ultralytics import YOLO
+
+
+BASE_DIR = Path(__file__).resolve().parent
 
 class ArtefactDetector:
     def __init__(self, model_path="artefact_detector/exp1/weights/best.pt", conf_threshold=0.3):
@@ -13,17 +18,41 @@ class ArtefactDetector:
         conf_threshold: confidence threshold for AI detection (default 0.3, can be lowered to increase detection rate)
         """
         self.conf_threshold = conf_threshold
+        self.model_path = self._resolve_model_path(model_path)
+        self.model = None
         try:
-            self.model = YOLO(model_path)
+            self.model = YOLO(str(self.model_path))
             self.model_loaded = True
-            print(f"AI model loaded: {model_path}")
+            print(f"Artefact detector model loaded: {self.model_path}")
             print(f"Recognizable classes: {self.model.names}")
             print(f"Detection confidence threshold: {self.conf_threshold}")
         except Exception as e:
-            print(f"Failed to load AI model: {e}")
+            print(f"Failed to load artefact detector model from {self.model_path}: {e}")
             self.model_loaded = False
         
         self.class_names = {0: 'cross', 1: 'fiducial', 2: 'circle', 3: 'square'}
+
+    def _resolve_model_path(self, model_path):
+        path = Path(model_path)
+        if path.is_absolute():
+            return path
+        cwd_candidate = Path.cwd() / path
+        if cwd_candidate.exists():
+            return cwd_candidate
+        return BASE_DIR / path
+
+    def _merge_detection(self, detected, candidate, distance_threshold=40):
+        """Merge duplicate scan detections from overlapping fields of view."""
+        cand_x, cand_y = candidate["abs_coord"]
+        for existing in detected:
+            if existing["class_name"] != candidate["class_name"]:
+                continue
+            ex_x, ex_y = existing["abs_coord"]
+            if np.hypot(cand_x - ex_x, cand_y - ex_y) <= distance_threshold:
+                if candidate["confidence"] > existing["confidence"]:
+                    existing.update(candidate)
+                return
+        detected.append(candidate)
     
     def detect(self, image, conf_threshold=None):
         """AI only detection, no traditional method"""
@@ -80,7 +109,7 @@ class ArtefactDetector:
         start_y = max(0, state.y - half_range)
         end_y = min(state.height_um - state.fov_height, state.y + half_range)
         
-        detected = {}
+        detected = []
         
         print(f"Scan range: X=[{start_x:.0f}, {end_x:.0f}], Y=[{start_y:.0f}, {end_y:.0f}]")
         
@@ -93,9 +122,19 @@ class ArtefactDetector:
                 detections = self.detect_in_fov(fov, cx, cy, conf_threshold=conf_threshold)
                 
                 for det in detections:
-                    # Use class name + center coordinates as a rough unique ID (a more stable ID may be needed in practice)
-                    artefact_id = f"{det['class_name']}_{det['center'][0]:.0f}_{det['center'][1]:.0f}"
-                    detected[artefact_id] = det['abs_coord']
-                    print(f"  Detected: {det['class_name']} (confidence: {det['confidence']:.2f}) at ({det['abs_coord'][0]:.1f}, {det['abs_coord'][1]:.1f})")
-        
+                    candidate = {
+                        "class_name": det["class_name"],
+                        "confidence": det["confidence"],
+                        "abs_coord": det["abs_coord"],
+                        "scan_origin": (cx, cy),
+                    }
+                    self._merge_detection(detected, candidate)
+
+        for det in detected:
+            print(
+                f"  Detected: {det['class_name']} "
+                f"(confidence: {det['confidence']:.2f}) at "
+                f"({det['abs_coord'][0]:.1f}, {det['abs_coord'][1]:.1f})"
+            )
+
         return detected

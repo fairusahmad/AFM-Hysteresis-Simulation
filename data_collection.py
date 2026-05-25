@@ -225,7 +225,7 @@ def run_data_collection_demo():
     import matplotlib.pyplot as plt
     
     state = AFMState(sample, width_um, height_um)
-    stage = NanoPositioner(r=30, log_file="temp_log.csv")
+    stage = NanoPositioner(log_file="temp_log.csv")
     
     # 模拟 get_tip 函数（实际应返回真实 tip 坐标）
     def dummy_get_tip():
