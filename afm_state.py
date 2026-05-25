@@ -37,10 +37,11 @@ class AFMState:
         self.zoom_center_y = None
         self.zoom_target_width = None
         self.zoom_target_height = None
-        self.current_zoom_level = 1
-        self.target_zoom_level = 1
-        self.min_zoom_level = 1
-        self.max_zoom_level = 10
+        self.zoom_levels = (0.25, 0.5, 1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0, 9.0, 10.0)
+        self.current_zoom_level = 1.0
+        self.target_zoom_level = 1.0
+        self.min_zoom_level = min(self.zoom_levels)
+        self.max_zoom_level = max(self.zoom_levels)
         self.current_fov_raw = None
 
         self.surface_tilt_angle = 0.0
@@ -87,6 +88,8 @@ class AFMState:
         self.default_scale_um_per_px = 1.0
         self.scale_bar_total_um = 200.0
         self.scale_bar_segments = 2
+        self.show_probe_hud = True
+        self.scan_region_size_um = 100.0
         self.origin_x = 0.0
         self.origin_y = 0.0
         self.origin_label = "Origin"
@@ -111,13 +114,13 @@ class AFMState:
         return float(np.clip(self.current_zoom_level, self.min_zoom_level, self.max_zoom_level))
 
     def get_digital_zoom_level(self):
-        return int(np.clip(self.current_zoom_level, self.min_zoom_level, self.max_zoom_level))
+        return float(np.clip(self.current_zoom_level, self.min_zoom_level, self.max_zoom_level))
 
     def get_current_objective_magnification(self):
         return float(self.base_objective_magnification) * self.get_optical_zoom_ratio()
 
     def get_fov_for_zoom_level(self, zoom_level):
-        zoom_level = int(np.clip(int(round(zoom_level)), self.min_zoom_level, self.max_zoom_level))
+        zoom_level = float(np.clip(float(zoom_level), self.min_zoom_level, self.max_zoom_level))
         width = max(50, int(round(self.on_axis_fov_width_um / float(zoom_level))))
         height = max(50, int(round(self.on_axis_fov_height_um / float(zoom_level))))
         return width, height

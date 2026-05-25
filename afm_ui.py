@@ -460,8 +460,9 @@ def _layout_utility(panel):
             "save_layout": [0.07, 0.42, 0.78, 0.11],
             "scale_bar": [0.07, 0.26, 0.38, 0.11],
             "tilt": [0.55, 0.26, 0.30, 0.11],
-            "coord": [0.07, 0.10, 0.38, 0.11],
-            "clear": [0.55, 0.10, 0.30, 0.11],
+            "coord": [0.07, 0.10, 0.24, 0.11],
+            "hud": [0.35, 0.10, 0.24, 0.11],
+            "clear": [0.63, 0.10, 0.22, 0.11],
         }
     else:
         placements = {
@@ -472,6 +473,7 @@ def _layout_utility(panel):
             "scale_bar": [0.07, 0.40, 0.40, 0.08],
             "tilt": [0.53, 0.40, 0.40, 0.08],
             "coord": [0.07, 0.29, 0.40, 0.08],
+            "hud": [0.53, 0.29, 0.40, 0.08],
             "clear": [0.07, 0.18, 0.86, 0.08],
         }
     for role, rel_bounds in placements.items():
@@ -558,6 +560,7 @@ def setup_dashboard(fig, layout_path=None):
         ("scale_bar", "Scale Bar: 200 um", 8.1),
         ("clear", "Clear Path", 8.6),
         ("coord", "Tip Position", 8.5),
+        ("hud", "HUD: ON", 8.5),
         ("tilt", "Stage Tilt", 8.5),
     ]
     for key, label, fontsize in utility_specs:

@@ -18,6 +18,14 @@ BASE_DIR = Path(__file__).resolve().parent
 
 class AFMCallbacks:
     SCALE_BAR_CHOICES_UM = (100.0, 200.0, 500.0)
+    PROBE_TIP_REL_X = 0.50
+    PROBE_TIP_REL_Y = 0.50
+    PROBE_TIP_HEIGHT_REL = 0.10
+    PROBE_TIP_BASE_WIDTH_REL = 0.0765
+    PROBE_ROD_LENGTH_REL = 0.35
+    PROBE_ROD_WIDTH_REL = 0.08
+    PROBE_CANTILEVER_HEIGHT_REL = 0.10
+    PROBE_CANTILEVER_WIDTH_REL = 0.50
 
     def __init__(
         self,
@@ -116,13 +124,18 @@ class AFMCallbacks:
         self.state.smooth_move_target_x = target_x
         self.state.smooth_move_target_y = target_y
 
+    def _get_zoom_level_index(self, zoom_level):
+        levels = np.array(self.state.zoom_levels, dtype=float)
+        return int(np.argmin(np.abs(levels - float(zoom_level))))
+
     def _begin_quantized_zoom(self, target_zoom_level):
-        target_zoom_level = int(np.clip(target_zoom_level, self.state.min_zoom_level, self.state.max_zoom_level))
+        levels = list(self.state.zoom_levels)
+        target_zoom_level = float(levels[self._get_zoom_level_index(target_zoom_level)])
         if self.state.zooming:
             self.log("Zoom already in progress")
             return
-        if target_zoom_level == int(self.state.current_zoom_level):
-            self.log(f"Zoom already at {target_zoom_level}x")
+        if np.isclose(target_zoom_level, float(self.state.current_zoom_level)):
+            self.log(f"Zoom already at {target_zoom_level:g}x")
             return
 
         self.state.zooming = True
@@ -134,6 +147,54 @@ class AFMCallbacks:
         self.state.target_zoom_level = target_zoom_level
         self.state.zoom_center_x = self.state.x + self.state.fov_width / 2.0
         self.state.zoom_center_y = self.state.y + self.state.fov_height / 2.0
+
+    def update_probe_visuals(self):
+        baseline_width_um = float(self.state.on_axis_fov_width_um)
+        baseline_height_um = float(self.state.on_axis_fov_height_um)
+        tip_x = float(self.state.x + self.state.fov_width * self.PROBE_TIP_REL_X)
+        tip_y = float(self.state.y + self.state.fov_height * self.PROBE_TIP_REL_Y)
+        z_offset_um = float(self.state.z_stage_position_um - self.state.focus_z_um)
+        z_scale = float(np.clip(1.0 + z_offset_um / 300.0, 0.65, 1.45))
+
+        tip_height_um = baseline_height_um * self.PROBE_TIP_HEIGHT_REL * z_scale
+        tip_base_width_um = baseline_width_um * self.PROBE_TIP_BASE_WIDTH_REL * z_scale
+        rod_length_um = baseline_height_um * self.PROBE_ROD_LENGTH_REL * z_scale
+        rod_width_um = baseline_width_um * self.PROBE_ROD_WIDTH_REL * z_scale
+        cantilever_height_um = baseline_height_um * self.PROBE_CANTILEVER_HEIGHT_REL * z_scale
+        cantilever_width_um = baseline_width_um * self.PROBE_CANTILEVER_WIDTH_REL * z_scale
+
+        tip_base_y = tip_y + tip_height_um
+        rod_y = tip_base_y
+        cantilever_y = rod_y + rod_length_um
+
+        self.cantilever.set_transform(self.ax.transData)
+        self.rod.set_transform(self.ax.transData)
+        self.tip.set_transform(self.ax.transData)
+
+        self.cantilever.set_xy((tip_x - cantilever_width_um / 2.0, cantilever_y))
+        self.cantilever.set_width(cantilever_width_um)
+        self.cantilever.set_height(cantilever_height_um)
+
+        self.rod.set_xy((tip_x - rod_width_um / 2.0, rod_y))
+        self.rod.set_width(rod_width_um)
+        self.rod.set_height(rod_length_um)
+
+        self.tip.set_xy(
+            [
+                [tip_x - tip_base_width_um / 2.0, tip_base_y],
+                [tip_x + tip_base_width_um / 2.0, tip_base_y],
+                [tip_x, tip_y],
+            ]
+        )
+        self.fig.canvas.draw_idle()
+
+    def toggle_probe_hud(self, event):
+        self.state.show_probe_hud = not self.state.show_probe_hud
+        if "hud" in self.buttons:
+            self.buttons["hud"].label.set_text(f"HUD: {'ON' if self.state.show_probe_hud else 'OFF'}")
+        if self.status_callback is not None:
+            self.status_callback()
+        self.fig.canvas.draw_idle()
 
     def _clamp_z_stage(self, z_position_um):
         half_travel = float(self.state.z_stage_travel_um) / 2.0
@@ -203,8 +264,8 @@ class AFMCallbacks:
         if sample_path:
             self.state.default_image_path = str(sample_path)
 
-        self.state.current_zoom_level = 1
-        self.state.target_zoom_level = 1
+        self.state.current_zoom_level = 1.0
+        self.state.target_zoom_level = 1.0
         self.state.fov_width, self.state.fov_height = self.state.get_fov_for_zoom_level(self.state.current_zoom_level)
         self.state.x = (self.state.width_um - self.state.fov_width) / 2.0
         self.state.y = (self.state.height_um - self.state.fov_height) / 2.0
@@ -307,6 +368,7 @@ class AFMCallbacks:
         display_fov = rotate_camera_frame(display_fov, self.state.surface_tilt_angle)
         self.img.set_data(display_fov)
         self.img.set_extent([ix, ix + self.state.fov_width, iy + self.state.fov_height, iy])
+        self.update_probe_visuals()
         self.fig.canvas.draw_idle()
 
     def _clamp_to_stage_margin(self, x, y):
@@ -601,10 +663,14 @@ class AFMCallbacks:
         self.update_title()
 
     def zoom_in(self, event):
-        self._begin_quantized_zoom(int(self.state.current_zoom_level) + 1)
+        current_index = self._get_zoom_level_index(self.state.current_zoom_level)
+        levels = list(self.state.zoom_levels)
+        self._begin_quantized_zoom(levels[min(current_index + 1, len(levels) - 1)])
 
     def zoom_out(self, event):
-        self._begin_quantized_zoom(int(self.state.current_zoom_level) - 1)
+        current_index = self._get_zoom_level_index(self.state.current_zoom_level)
+        levels = list(self.state.zoom_levels)
+        self._begin_quantized_zoom(levels[max(current_index - 1, 0)])
 
     def move_z_up(self, event):
         self.state.z_stage_position_um = self._clamp_z_stage(self.state.z_stage_position_um + self.state.z_stage_step_um)

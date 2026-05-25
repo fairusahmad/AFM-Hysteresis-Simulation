@@ -2,6 +2,7 @@ import matplotlib.pyplot as plt
 from collections import deque
 import json
 from matplotlib.animation import FuncAnimation
+from matplotlib.patches import Rectangle
 from pathlib import Path
 import tkinter as tk
 from tkinter import scrolledtext, simpledialog
@@ -256,6 +257,29 @@ origin_text = ax.text(
     zorder=27,
     bbox=dict(boxstyle="round,pad=0.15", facecolor=(0, 0, 0, 0.35), edgecolor="none"),
 )
+tip_marker, = ax.plot([], [], marker="o", markersize=5, markeredgewidth=1.2, markerfacecolor="#8ef9f3", markeredgecolor="#0f766e", linestyle="None", zorder=28)
+tip_text = ax.text(
+    0,
+    0,
+    "",
+    color="#8ef9f3",
+    fontsize=9,
+    ha="left",
+    va="bottom",
+    zorder=28,
+    bbox=dict(boxstyle="round,pad=0.15", facecolor=(0, 0, 0, 0.35), edgecolor="none"),
+)
+scan_region = Rectangle(
+    (0, 0),
+    state.scan_region_size_um,
+    state.scan_region_size_um,
+    linewidth=1.6,
+    edgecolor="#8ef9f3",
+    facecolor="none",
+    linestyle="--",
+    zorder=28,
+)
+ax.add_patch(scan_region)
 
 cantilever, rod, tip, center_x_ax = setup_probe_graphics(ax)
 button_objects, radio_step, status_text, activity_text, dock_manager = setup_dashboard(fig, layout_path=DOCK_LAYOUT_PATH)
@@ -293,8 +317,8 @@ def refresh_status_panel():
         f"Surface: {state.sample_source}",
         f"Image  : {Path(state.sample_path).name if state.sample_path else 'synthetic surface'}",
         f"Camera : {state.camera_mode}",
-        f"Zoom   : {digital_zoom:7.0f}x",
-        f"Obj    : {optical_mag:7.0f}x",
+        f"Zoom   : {digital_zoom:7g}x",
+        f"Obj    : {optical_mag:7g}x",
         f"Live   : {state.camera_resolution[0]} x {state.camera_resolution[1]} px",
         f"Ref HW : {state.camera_reference_resolution[0]} x {state.camera_reference_resolution[1]} px",
         f"Aux Cam: {state.sample_view_camera_resolution[0]} x {state.sample_view_camera_resolution[1]} px",
@@ -312,10 +336,12 @@ def refresh_status_panel():
         f"Scan   : {'ON' if state.auto_scan_active else 'OFF'}",
         f"PI     : {'ON' if state.pi_mode else 'OFF'}",
         f"Pause  : {'YES' if state.paused else 'NO'}",
+        f"HUD    : {'ON' if state.show_probe_hud else 'OFF'}",
         f"FOV    : {state.fov_width} x {state.fov_height} um",
     ]
     status_text.set_text("\n".join(lines))
     update_origin_overlay()
+    update_tip_overlay()
 
 
 def log_message(message):
@@ -358,6 +384,27 @@ def update_relocation_hover_help(event):
     else:
         origin_marker.set_data([], [])
         origin_text.set_text("")
+
+
+def update_tip_overlay():
+    tip_x, tip_y = get_tip_wrapper()
+    hud_visible = bool(state.show_probe_hud)
+    tip_marker.set_visible(hud_visible)
+    tip_text.set_visible(hud_visible)
+    scan_region.set_visible(hud_visible)
+
+    if not hud_visible:
+        tip_marker.set_data([], [])
+        tip_text.set_text("")
+        return
+
+    half_scan = float(state.scan_region_size_um) / 2.0
+    tip_marker.set_data([tip_x], [tip_y])
+    tip_text.set_position((tip_x + state.fov_width * 0.015, tip_y - state.fov_height * 0.02))
+    tip_text.set_text("Cantilever Tip")
+    scan_region.set_xy((tip_x - half_scan, tip_y - half_scan))
+    scan_region.set_width(state.scan_region_size_um)
+    scan_region.set_height(state.scan_region_size_um)
 
 
 def show_viewport_context_menu(event):
@@ -418,6 +465,7 @@ callbacks.img = img
 callbacks.set_log_callback(log_message)
 callbacks.set_status_callback(refresh_status_panel)
 callbacks.set_persist_default_callback(lambda default_info: save_default_settings(default_info, autoload=True))
+callbacks.update_probe_visuals()
 
 button_objects["up"].on_clicked(callbacks.move_up)
 button_objects["down"].on_clicked(callbacks.move_down)
@@ -449,6 +497,8 @@ button_objects["save_layout"].on_clicked(lambda event: log_message(f"Dock layout
 button_objects["scale_bar"].label.set_text(f"Scale Bar: {int(state.scale_bar_total_um)} um")
 button_objects["scale_bar"].on_clicked(callbacks.cycle_scale_bar_length)
 button_objects["coord"].on_clicked(callbacks.show_tip_coord)
+button_objects["hud"].label.set_text(f"HUD: {'ON' if state.show_probe_hud else 'OFF'}")
+button_objects["hud"].on_clicked(callbacks.toggle_probe_hud)
 button_objects["tilt"].on_clicked(callbacks.set_tilt)
 fig.canvas.mpl_connect("button_press_event", callbacks.move_to_clicked_point)
 fig.canvas.mpl_connect("button_press_event", show_viewport_context_menu)
@@ -477,6 +527,7 @@ animation = AFMAnimation(
     scale_bar_white,
     scale_bar_text,
     refresh_status_panel,
+    callbacks.update_probe_visuals,
 )
 ani = FuncAnimation(fig, animation.update, interval=state.animation_interval_ms, cache_frame_data=False)
 

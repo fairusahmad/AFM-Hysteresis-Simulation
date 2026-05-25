@@ -5,7 +5,8 @@ class AFMAnimation:
     def __init__(self, state, stage, data, ax, img, ideal_line, hyst_line,
                  artifact_layer, fig, get_tip_func, scale_bar_black=None, scale_bar_white=None,
                  scale_bar_text=None,
-                 status_update_func=None):
+                 status_update_func=None,
+                 probe_update_func=None):
         self.state = state
         self.stage = stage
         self.data = data
@@ -20,6 +21,7 @@ class AFMAnimation:
         self.scale_bar_white = scale_bar_white
         self.scale_bar_text = scale_bar_text
         self.status_update = status_update_func
+        self.probe_update = probe_update_func
     
     def update(self, frame):
         # 自动扫描
@@ -103,6 +105,8 @@ class AFMAnimation:
         self.img.set_data(display_fov)
         self.img.set_extent([ix, ix+self.state.fov_width, iy+self.state.fov_height, iy])
         self._update_scale_bar(ix, iy, self.state.fov_width, self.state.fov_height)
+        if self.probe_update is not None:
+            self.probe_update()
         
         # 记录轨迹
         if not self.state.tilting:
@@ -167,13 +171,21 @@ class AFMAnimation:
         self.img.set_data(display_fov)
         self.img.set_extent([x_new, x_new+new_width, y_new+new_height, y_new])
         self._update_scale_bar(x_new, y_new, new_width, new_height)
+        if self.probe_update is not None:
+            interpolated_zoom = float(self.state.current_zoom_level) + (
+                float(self.state.target_zoom_level) - float(self.state.current_zoom_level)
+            ) * alpha
+            original_zoom = self.state.current_zoom_level
+            self.state.current_zoom_level = interpolated_zoom
+            self.probe_update()
+            self.state.current_zoom_level = original_zoom
         
         if self.state.zoom_progress >= self.state.zoom_steps:
             self.state.zooming = False
             self.state.zoom_progress = 0
             self.state.x, self.state.y = x_new, y_new
             self.state.fov_width, self.state.fov_height = new_width, new_height
-            self.state.current_zoom_level = int(self.state.target_zoom_level)
+            self.state.current_zoom_level = float(self.state.target_zoom_level)
             # Optical zoom should not trigger any mechanical catch-up motion afterward.
             self.state.target_x = self.state.x
             self.state.target_y = self.state.y
