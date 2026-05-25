@@ -1,6 +1,8 @@
 """
 hysteresis.py - Multi-operator Prandtl‑Ishlinskii hysteresis model
 X and Y axes have independent states to eliminate coupling.
+Keep hysteresis equations and operator behavior in this file.
+Do not modify this model unless the user explicitly requests it.
 """
 
 import csv

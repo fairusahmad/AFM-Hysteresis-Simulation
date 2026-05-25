@@ -146,6 +146,9 @@ class AFMAnimation:
 
         new_width = max(50, int(round(base_width + (target_width - base_width) * alpha)))
         new_height = max(50, int(round(base_height + (target_height - base_height) * alpha)))
+        interpolated_zoom = float(self.state.current_zoom_level) + (
+            float(self.state.target_zoom_level) - float(self.state.current_zoom_level)
+        ) * alpha
         x_new = center_x - new_width / 2.0
         y_new = center_y - new_height / 2.0
         fov, outside_mask, ix, iy = create_stage_fov(
@@ -162,7 +165,11 @@ class AFMAnimation:
             fov,
             self.state.camera_resolution,
             outside_mask=outside_mask,
-            focus_model=self.state.get_focus_model(),
+            focus_model=self.state.get_focus_model(
+                zoom_level=interpolated_zoom,
+                fov_width_um=new_width,
+                fov_height_um=new_height,
+            ),
         )
         self.state.last_blur_diameter_um = focus_metrics["blur_diameter_um"]
         self.state.last_blur_sigma_px = focus_metrics["sigma_px"]
@@ -172,9 +179,6 @@ class AFMAnimation:
         self.img.set_extent([x_new, x_new+new_width, y_new+new_height, y_new])
         self._update_scale_bar(x_new, y_new, new_width, new_height)
         if self.probe_update is not None:
-            interpolated_zoom = float(self.state.current_zoom_level) + (
-                float(self.state.target_zoom_level) - float(self.state.current_zoom_level)
-            ) * alpha
             original_zoom = self.state.current_zoom_level
             self.state.current_zoom_level = interpolated_zoom
             self.probe_update()

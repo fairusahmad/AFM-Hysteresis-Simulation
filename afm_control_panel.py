@@ -312,6 +312,8 @@ def refresh_status_panel():
     digital_zoom = state.get_digital_zoom_level()
     optical_mag = state.get_current_objective_magnification()
     focus_metrics = get_defocus_metrics(state.get_focus_model(), (state.camera_resolution[1], state.camera_resolution[0]))
+    effective_camera_stage_um = state.get_effective_camera_stage_position_um()
+    probe_gap_um = state.get_probe_sample_gap_um()
 
     lines = [
         f"Surface: {state.sample_source}",
@@ -328,7 +330,9 @@ def refresh_status_panel():
         pos_rel_line,
         tgt_rel_line,
         f"Step   : {state.current_step:7.1f} um",
-        f"Z Stage: {state.z_stage_position_um:+7.1f} um",
+        f"Smp Z  : {state.z_stage_position_um:+7.1f} um",
+        f"Cam Z  : {effective_camera_stage_um:+7.1f} um",
+        f"Gap    : {probe_gap_um:+7.1f} um",
         f"Focus  : {state.focus_z_um:+7.1f} um  DOF={focus_metrics['dof_camera_um']:5.2f} um",
         f"Blur   : {focus_metrics['blur_diameter_um']:7.2f} um  {focus_metrics['blur_diameter_px']:6.2f} px",
         f"Smooth : {state.smooth_move_step:7.1f} um/frame",

@@ -1,4 +1,10 @@
 import numpy as np
+from afm_optics_model import (
+    DEFAULT_ZOOM_OUT_LIFT_AT_MIN_UM,
+    DEFAULT_ZOOM_OUT_LIFT_CURVE_POWER,
+    DEFAULT_ZOOM_OUT_LIFT_START,
+    compute_zoom_out_camera_lift_um,
+)
 
 
 class AFMState:
@@ -77,8 +83,14 @@ class AFMState:
         self.sample_view_fov_height_mm = 97.0
         self.z_stage_travel_um = 22000.0
         self.z_stage_position_um = 0.0
+        self.camera_stage_position_um = 0.0
         self.focus_z_um = 0.0
         self.z_stage_step_um = 5.0
+        self.probe_lift_start_zoom = DEFAULT_ZOOM_OUT_LIFT_START
+        self.probe_lift_at_min_zoom_um = DEFAULT_ZOOM_OUT_LIFT_AT_MIN_UM
+        self.probe_lift_curve_power = DEFAULT_ZOOM_OUT_LIFT_CURVE_POWER
+        self.probe_full_exit_gap_um = 320.0
+        self.probe_exit_travel_fov_heights = 1.25
         self.afm_z_scanner_range_options_um = (15.0, 30.0)
         self.xy_scanner_range_options_um = ((100.0, 100.0), (50.0, 50.0), (5.0, 5.0))
         self.last_blur_diameter_um = 0.0
@@ -125,14 +137,37 @@ class AFMState:
         height = max(50, int(round(self.on_axis_fov_height_um / float(zoom_level))))
         return width, height
 
-    def get_focus_model(self):
+    def get_zoom_out_camera_lift_um(self, zoom_level=None):
+        zoom_level = float(self.current_zoom_level if zoom_level is None else zoom_level)
+        return compute_zoom_out_camera_lift_um(
+            zoom_level=zoom_level,
+            zoom_levels=self.zoom_levels,
+            lift_start_zoom=self.probe_lift_start_zoom,
+            lift_at_min_zoom_um=self.probe_lift_at_min_zoom_um,
+            curve_power=self.probe_lift_curve_power,
+        )
+
+    def get_effective_camera_stage_position_um(self, zoom_level=None):
+        return float(self.camera_stage_position_um + self.get_zoom_out_camera_lift_um(zoom_level))
+
+    def get_probe_sample_gap_um(self, zoom_level=None):
+        return float(self.get_effective_camera_stage_position_um(zoom_level) - self.z_stage_position_um)
+
+    def get_focus_offset_um(self, zoom_level=None):
+        return float(self.get_probe_sample_gap_um(zoom_level) - self.focus_z_um)
+
+    def get_focus_model(self, zoom_level=None, fov_width_um=None, fov_height_um=None):
         return {
-            "z_position_um": float(self.z_stage_position_um),
+            "z_position_um": float(self.get_probe_sample_gap_um(zoom_level)),
             "focus_z_um": float(self.focus_z_um),
             "numerical_aperture": float(self.objective_numerical_aperture),
             "wavelength_um": float(self.illumination_wavelength_um),
             "sensor_pixel_size_um": float(self.sensor_pixel_size_um),
-            "objective_magnification": float(self.get_current_objective_magnification()),
-            "fov_width_um": float(self.fov_width),
-            "fov_height_um": float(self.fov_height),
+            "objective_magnification": float(self.base_objective_magnification * np.clip(
+                float(self.current_zoom_level if zoom_level is None else zoom_level),
+                self.min_zoom_level,
+                self.max_zoom_level,
+            )),
+            "fov_width_um": float(self.fov_width if fov_width_um is None else fov_width_um),
+            "fov_height_um": float(self.fov_height if fov_height_um is None else fov_height_um),
         }

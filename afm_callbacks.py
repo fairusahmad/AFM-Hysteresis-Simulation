@@ -153,8 +153,7 @@ class AFMCallbacks:
         baseline_height_um = float(self.state.on_axis_fov_height_um)
         tip_x = float(self.state.x + self.state.fov_width * self.PROBE_TIP_REL_X)
         tip_y = float(self.state.y + self.state.fov_height * self.PROBE_TIP_REL_Y)
-        z_offset_um = float(self.state.z_stage_position_um - self.state.focus_z_um)
-        z_scale = float(np.clip(1.0 + z_offset_um / 300.0, 0.65, 1.45))
+        z_scale = 1.0
 
         tip_height_um = baseline_height_um * self.PROBE_TIP_HEIGHT_REL * z_scale
         tip_base_width_um = baseline_width_um * self.PROBE_TIP_BASE_WIDTH_REL * z_scale
@@ -676,22 +675,27 @@ class AFMCallbacks:
         self.state.z_stage_position_um = self._clamp_z_stage(self.state.z_stage_position_um + self.state.z_stage_step_um)
         self._refresh_current_view()
         self.log(
-            f"Z stage moved to {self.state.z_stage_position_um:+.1f} um "
-            f"(focus offset {self.state.z_stage_position_um - self.state.focus_z_um:+.1f} um)"
+            f"Sample Z stage moved to {self.state.z_stage_position_um:+.1f} um "
+            f"(probe gap {self.state.get_probe_sample_gap_um():+.1f} um, focus offset {self.state.get_focus_offset_um():+.1f} um)"
         )
 
     def move_z_down(self, event):
         self.state.z_stage_position_um = self._clamp_z_stage(self.state.z_stage_position_um - self.state.z_stage_step_um)
         self._refresh_current_view()
         self.log(
-            f"Z stage moved to {self.state.z_stage_position_um:+.1f} um "
-            f"(focus offset {self.state.z_stage_position_um - self.state.focus_z_um:+.1f} um)"
+            f"Sample Z stage moved to {self.state.z_stage_position_um:+.1f} um "
+            f"(probe gap {self.state.get_probe_sample_gap_um():+.1f} um, focus offset {self.state.get_focus_offset_um():+.1f} um)"
         )
 
     def reset_focus(self, event):
-        self.state.z_stage_position_um = float(self.state.focus_z_um)
+        self.state.z_stage_position_um = float(
+            self.state.get_effective_camera_stage_position_um() - self.state.focus_z_um
+        )
         self._refresh_current_view()
-        self.log(f"Z stage returned to best focus at {self.state.focus_z_um:.1f} um")
+        self.log(
+            f"Sample Z stage returned to best focus at {self.state.z_stage_position_um:.1f} um "
+            f"for camera/cantilever stage {self.state.get_effective_camera_stage_position_um():.1f} um"
+        )
 
     def show_tip_coord(self, event):
         tip_x, tip_y = self.get_tip()
