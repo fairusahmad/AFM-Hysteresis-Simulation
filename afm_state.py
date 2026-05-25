@@ -96,6 +96,8 @@ class AFMState:
         self.last_blur_diameter_um = 0.0
         self.last_blur_sigma_px = 0.0
         self.last_dof_camera_um = 0.0
+        self.manual_dof_camera_um = None
+        self.dof_step_um = 0.5
 
         self.default_scale_um_per_px = 1.0
         self.scale_bar_total_um = 200.0
@@ -163,6 +165,9 @@ class AFMState:
             "numerical_aperture": float(self.objective_numerical_aperture),
             "wavelength_um": float(self.illumination_wavelength_um),
             "sensor_pixel_size_um": float(self.sensor_pixel_size_um),
+            "manual_dof_camera_um": (
+                None if self.manual_dof_camera_um is None else float(self.manual_dof_camera_um)
+            ),
             "objective_magnification": float(self.base_objective_magnification * np.clip(
                 float(self.current_zoom_level if zoom_level is None else zoom_level),
                 self.min_zoom_level,

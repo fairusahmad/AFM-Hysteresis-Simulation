@@ -396,23 +396,29 @@ def _layout_navigation(panel):
 def _layout_motion(panel):
     width, height = panel.bounds[2], panel.bounds[3]
     if width >= height * 1.4:
-        panel.set_child_bounds("pi", [0.05, 0.62, 0.41, 0.16])
-        panel.set_child_bounds("auto", [0.54, 0.62, 0.27, 0.16])
-        panel.set_child_bounds("stop", [0.05, 0.40, 0.41, 0.16])
-        panel.set_child_bounds("focus_reset", [0.54, 0.40, 0.27, 0.16])
-        panel.set_child_bounds("zoom_in", [0.05, 0.18, 0.17, 0.16])
-        panel.set_child_bounds("zoom_out", [0.24, 0.18, 0.17, 0.16])
-        panel.set_child_bounds("z_down", [0.54, 0.18, 0.12, 0.16])
-        panel.set_child_bounds("z_up", [0.68, 0.18, 0.12, 0.16])
+        panel.set_child_bounds("pi", [0.05, 0.67, 0.41, 0.14])
+        panel.set_child_bounds("auto", [0.54, 0.67, 0.27, 0.14])
+        panel.set_child_bounds("stop", [0.05, 0.49, 0.41, 0.14])
+        panel.set_child_bounds("focus_reset", [0.54, 0.49, 0.27, 0.14])
+        panel.set_child_bounds("zoom_in", [0.05, 0.29, 0.17, 0.14])
+        panel.set_child_bounds("zoom_out", [0.24, 0.29, 0.17, 0.14])
+        panel.set_child_bounds("z_down", [0.54, 0.29, 0.12, 0.14])
+        panel.set_child_bounds("z_up", [0.68, 0.29, 0.12, 0.14])
+        panel.set_child_bounds("dof_down", [0.05, 0.10, 0.17, 0.14])
+        panel.set_child_bounds("dof_up", [0.24, 0.10, 0.17, 0.14])
+        panel.set_child_bounds("dof_auto", [0.54, 0.10, 0.26, 0.14])
     else:
-        panel.set_child_bounds("pi", [0.06, 0.71, 0.86, 0.09])
-        panel.set_child_bounds("auto", [0.06, 0.59, 0.86, 0.09])
-        panel.set_child_bounds("stop", [0.06, 0.47, 0.86, 0.09])
-        panel.set_child_bounds("focus_reset", [0.06, 0.35, 0.86, 0.09])
-        panel.set_child_bounds("zoom_in", [0.06, 0.21, 0.40, 0.09])
-        panel.set_child_bounds("zoom_out", [0.52, 0.21, 0.40, 0.09])
-        panel.set_child_bounds("z_down", [0.06, 0.08, 0.40, 0.09])
-        panel.set_child_bounds("z_up", [0.52, 0.08, 0.40, 0.09])
+        panel.set_child_bounds("pi", [0.06, 0.78, 0.86, 0.07])
+        panel.set_child_bounds("auto", [0.06, 0.68, 0.86, 0.07])
+        panel.set_child_bounds("stop", [0.06, 0.58, 0.86, 0.07])
+        panel.set_child_bounds("focus_reset", [0.06, 0.48, 0.86, 0.07])
+        panel.set_child_bounds("zoom_in", [0.06, 0.36, 0.40, 0.07])
+        panel.set_child_bounds("zoom_out", [0.52, 0.36, 0.40, 0.07])
+        panel.set_child_bounds("z_down", [0.06, 0.24, 0.40, 0.07])
+        panel.set_child_bounds("z_up", [0.52, 0.24, 0.40, 0.07])
+        panel.set_child_bounds("dof_down", [0.06, 0.12, 0.40, 0.07])
+        panel.set_child_bounds("dof_up", [0.52, 0.12, 0.40, 0.07])
+        panel.set_child_bounds("dof_auto", [0.06, 0.02, 0.86, 0.07])
 
 
 def _layout_status(panel):
@@ -519,6 +525,9 @@ def setup_dashboard(fig, layout_path=None):
         ("zoom_out", "Zoom -", "#dde7f5", "#c9daef", 8.7),
         ("z_down", "Z -", "#fde8d6", "#f8d5b7", 8.7),
         ("z_up", "Z +", "#fde8d6", "#f8d5b7", 8.7),
+        ("dof_down", "DOF -", "#efe5fb", "#e0d0f6", 8.7),
+        ("dof_up", "DOF +", "#efe5fb", "#e0d0f6", 8.7),
+        ("dof_auto", "DOF Auto", "#efe5fb", "#e0d0f6", 8.4),
     ]
     for key, label, facecolor, hovercolor, fontsize in motion_buttons:
         button_key, button = motion_panel.add_button(key, label, facecolor, hovercolor, fontsize, role=key)

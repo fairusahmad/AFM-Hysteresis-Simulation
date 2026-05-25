@@ -697,6 +697,28 @@ class AFMCallbacks:
             f"for camera/cantilever stage {self.state.get_effective_camera_stage_position_um():.1f} um"
         )
 
+    def _get_active_dof_value(self):
+        if self.state.manual_dof_camera_um is not None:
+            return float(self.state.manual_dof_camera_um)
+        return float(self.state.last_dof_camera_um)
+
+    def increase_dof(self, event):
+        next_dof = max(0.1, self._get_active_dof_value() + float(self.state.dof_step_um))
+        self.state.manual_dof_camera_um = next_dof
+        self._refresh_current_view()
+        self.log(f"Manual DOF set to {next_dof:.2f} um")
+
+    def decrease_dof(self, event):
+        next_dof = max(0.1, self._get_active_dof_value() - float(self.state.dof_step_um))
+        self.state.manual_dof_camera_um = next_dof
+        self._refresh_current_view()
+        self.log(f"Manual DOF set to {next_dof:.2f} um")
+
+    def reset_dof_auto(self, event):
+        self.state.manual_dof_camera_um = None
+        self._refresh_current_view()
+        self.log("DOF control returned to automatic optics mode")
+
     def show_tip_coord(self, event):
         tip_x, tip_y = self.get_tip()
         if self.state.origin_defined:

@@ -144,6 +144,53 @@ class ActivityTerminal:
         self.text_widget.configure(state=tk.DISABLED)
 
 
+class ScrollableStatusDock:
+    def __init__(self, fig, panel, text_artist):
+        self.fig = fig
+        self.panel = panel
+        self.text_artist = text_artist
+        self.lines = []
+        self.scroll_offset = 0
+        self.fig.canvas.mpl_connect("scroll_event", self.on_scroll)
+
+    def _get_visible_line_count(self):
+        panel_height = float(self.panel.bounds[3])
+        return max(8, int((panel_height - 0.10) / 0.017))
+
+    def _clamp_offset(self):
+        visible = self._get_visible_line_count()
+        max_offset = max(0, len(self.lines) - visible)
+        self.scroll_offset = int(max(0, min(self.scroll_offset, max_offset)))
+
+    def set_lines(self, lines):
+        self.lines = [str(line) for line in lines]
+        self._clamp_offset()
+        self.render()
+
+    def render(self):
+        self._clamp_offset()
+        visible = self._get_visible_line_count()
+        start = self.scroll_offset
+        end = start + visible
+        visible_lines = self.lines[start:end]
+        if start > 0:
+            visible_lines[0] = "..." if len(visible_lines) == 1 else f"... {visible_lines[0]}"
+        if end < len(self.lines) and visible_lines:
+            visible_lines[-1] = f"{visible_lines[-1]} ..."
+        self.text_artist.set_text("\n".join(visible_lines))
+
+    def on_scroll(self, event):
+        if event.inaxes != self.panel.ax or not self.lines:
+            return
+        step = -1 if event.button == "up" else 1
+        old_offset = self.scroll_offset
+        self.scroll_offset += step
+        self._clamp_offset()
+        if self.scroll_offset != old_offset:
+            self.render()
+            self.fig.canvas.draw_idle()
+
+
 def load_default_settings():
     if not DEFAULT_SETTINGS_PATH.exists():
         return dict(DEFAULT_IMAGE_CONFIG)
@@ -285,6 +332,8 @@ cantilever, rod, tip, center_x_ax = setup_probe_graphics(ax)
 button_objects, radio_step, status_text, activity_text, dock_manager = setup_dashboard(fig, layout_path=DOCK_LAYOUT_PATH)
 activity_terminal = ActivityTerminal(fig, manager)
 relocation_panel = next((panel for panel in dock_manager.panels if panel.panel_id == "relocation"), None)
+status_panel = next((panel for panel in dock_manager.panels if panel.panel_id == "status_activity"), None)
+status_dock = None if status_panel is None else ScrollableStatusDock(fig, status_panel, status_text)
 relocation_help_text = None if relocation_panel is None else relocation_panel.children_by_role["relocation_help"]["artist"]
 relocation_tooltips = {
     "save_ref": "Capture Ref: save the current viewport as the reference image for later relocation.",
@@ -314,6 +363,7 @@ def refresh_status_panel():
     focus_metrics = get_defocus_metrics(state.get_focus_model(), (state.camera_resolution[1], state.camera_resolution[0]))
     effective_camera_stage_um = state.get_effective_camera_stage_position_um()
     probe_gap_um = state.get_probe_sample_gap_um()
+    dof_mode = "MAN" if state.manual_dof_camera_um is not None else "AUTO"
 
     lines = [
         f"Surface: {state.sample_source}",
@@ -333,7 +383,7 @@ def refresh_status_panel():
         f"Smp Z  : {state.z_stage_position_um:+7.1f} um",
         f"Cam Z  : {effective_camera_stage_um:+7.1f} um",
         f"Gap    : {probe_gap_um:+7.1f} um",
-        f"Focus  : {state.focus_z_um:+7.1f} um  DOF={focus_metrics['dof_camera_um']:5.2f} um",
+        f"Focus  : {state.focus_z_um:+7.1f} um  DOF={focus_metrics['dof_camera_um']:5.2f} um {dof_mode}",
         f"Blur   : {focus_metrics['blur_diameter_um']:7.2f} um  {focus_metrics['blur_diameter_px']:6.2f} px",
         f"Smooth : {state.smooth_move_step:7.1f} um/frame",
         f"Tilt   : {state.surface_tilt_angle:7.1f} deg",
@@ -343,7 +393,10 @@ def refresh_status_panel():
         f"HUD    : {'ON' if state.show_probe_hud else 'OFF'}",
         f"FOV    : {state.fov_width} x {state.fov_height} um",
     ]
-    status_text.set_text("\n".join(lines))
+    if status_dock is not None:
+        status_dock.set_lines(lines)
+    else:
+        status_text.set_text("\n".join(lines))
     update_origin_overlay()
     update_tip_overlay()
 
@@ -493,6 +546,9 @@ button_objects["zoom_in"].on_clicked(callbacks.zoom_in)
 button_objects["zoom_out"].on_clicked(callbacks.zoom_out)
 button_objects["z_down"].on_clicked(callbacks.move_z_down)
 button_objects["z_up"].on_clicked(callbacks.move_z_up)
+button_objects["dof_down"].on_clicked(callbacks.decrease_dof)
+button_objects["dof_up"].on_clicked(callbacks.increase_dof)
+button_objects["dof_auto"].on_clicked(callbacks.reset_dof_auto)
 button_objects["focus_reset"].on_clicked(callbacks.reset_focus)
 button_objects["load_default"].on_clicked(callbacks.load_default_image)
 button_objects["load_image"].on_clicked(callbacks.load_sample_image)

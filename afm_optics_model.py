@@ -45,6 +45,7 @@ def get_defocus_metrics(focus_model, image_shape):
     wavelength_um = max(float(focus_model.get("wavelength_um", 0.0)), 1e-6)
     sensor_pixel_size_um = max(float(focus_model.get("sensor_pixel_size_um", 0.0)), 1e-6)
     objective_magnification = max(float(focus_model.get("objective_magnification", 0.0)), 1e-6)
+    manual_dof_camera_um = focus_model.get("manual_dof_camera_um")
     z_position_um = float(focus_model.get("z_position_um", 0.0))
     focus_z_um = float(focus_model.get("focus_z_um", 0.0))
     fov_width_um = max(float(focus_model.get("fov_width_um", width)), 1e-6)
@@ -52,7 +53,11 @@ def get_defocus_metrics(focus_model, image_shape):
 
     delta_z_um = abs(z_position_um - focus_z_um)
     dof_simple_um = wavelength_um / (na ** 2)
-    dof_camera_um = dof_simple_um + (sensor_pixel_size_um / (objective_magnification * na))
+    computed_dof_camera_um = dof_simple_um + (sensor_pixel_size_um / (objective_magnification * na))
+    if manual_dof_camera_um is None:
+        dof_camera_um = computed_dof_camera_um
+    else:
+        dof_camera_um = max(float(manual_dof_camera_um), 1e-6)
     effective_defocus_um = max(0.0, delta_z_um - (dof_camera_um / 2.0))
     blur_diameter_um = 2.0 * na * effective_defocus_um
 
