@@ -2,9 +2,6 @@ import cv2
 import numpy as np
 
 
-_RADIAL_MASK_CACHE = {}
-
-
 def get_tip_position(tip, ax):
     vertices = tip.get_xy()
     tip_vertex_axes = vertices[2]
@@ -88,9 +85,9 @@ def create_fov_image(sample, artifact_layer, show_artifact, x, y, fov_width, fov
     return fov, ix, iy
 
 
-def render_camera_frame(fov, camera_resolution=None, outside_mask=None, outside_color=(155, 24, 24)):
+def render_camera_frame(fov, camera_resolution=None, outside_mask=None, outside_color=(155, 24, 24), focus_model=None):
     if fov.size == 0:
-        return fov
+        return fov, get_defocus_metrics(focus_model, fov.shape)
 
     if camera_resolution is not None:
         target_w, target_h = camera_resolution
@@ -104,8 +101,8 @@ def render_camera_frame(fov, camera_resolution=None, outside_mask=None, outside_
                     interpolation=cv2.INTER_NEAREST,
                 ) > 0
 
-    blurred = apply_radial_focus_blur(fov)
-    return _apply_outside_color(blurred, outside_mask, outside_color)
+    blurred, focus_metrics = apply_defocus_blur(fov, focus_model)
+    return _apply_outside_color(blurred, outside_mask, outside_color), focus_metrics
 
 
 def rotate_camera_frame(frame, angle_deg, fill_color=(155, 24, 24)):
@@ -138,38 +135,64 @@ def _apply_outside_color(fov, outside_mask, outside_color):
     return display
 
 
-def apply_radial_focus_blur(fov, focus_radius_ratio=0.28, feather_ratio=0.32, blur_kernel=25):
+def get_defocus_metrics(focus_model, image_shape):
+    height, width = image_shape[:2]
+    if not focus_model:
+        return {
+            "delta_z_um": 0.0,
+            "dof_simple_um": 0.0,
+            "dof_camera_um": 0.0,
+            "effective_defocus_um": 0.0,
+            "blur_diameter_um": 0.0,
+            "blur_diameter_px": 0.0,
+            "sigma_px": 0.0,
+        }
+
+    na = max(float(focus_model.get("numerical_aperture", 0.0)), 1e-6)
+    wavelength_um = max(float(focus_model.get("wavelength_um", 0.0)), 1e-6)
+    sensor_pixel_size_um = max(float(focus_model.get("sensor_pixel_size_um", 0.0)), 1e-6)
+    objective_magnification = max(float(focus_model.get("objective_magnification", 0.0)), 1e-6)
+    z_position_um = float(focus_model.get("z_position_um", 0.0))
+    focus_z_um = float(focus_model.get("focus_z_um", 0.0))
+    fov_width_um = max(float(focus_model.get("fov_width_um", width)), 1e-6)
+    fov_height_um = max(float(focus_model.get("fov_height_um", height)), 1e-6)
+
+    delta_z_um = abs(z_position_um - focus_z_um)
+    dof_simple_um = wavelength_um / (na ** 2)
+    dof_camera_um = dof_simple_um + (sensor_pixel_size_um / (objective_magnification * na))
+    effective_defocus_um = max(0.0, delta_z_um - (dof_camera_um / 2.0))
+    blur_diameter_um = 2.0 * na * effective_defocus_um
+
+    um_per_px_x = fov_width_um / max(width, 1)
+    um_per_px_y = fov_height_um / max(height, 1)
+    um_per_px = max((um_per_px_x + um_per_px_y) / 2.0, 1e-6)
+    blur_diameter_px = blur_diameter_um / um_per_px
+    sigma_px = blur_diameter_px / 2.355
+
+    return {
+        "delta_z_um": float(delta_z_um),
+        "dof_simple_um": float(dof_simple_um),
+        "dof_camera_um": float(dof_camera_um),
+        "effective_defocus_um": float(effective_defocus_um),
+        "blur_diameter_um": float(blur_diameter_um),
+        "blur_diameter_px": float(blur_diameter_px),
+        "sigma_px": float(sigma_px),
+    }
+
+
+def apply_defocus_blur(fov, focus_model=None):
     if fov.size == 0:
-        return fov
+        return fov, get_defocus_metrics(focus_model, fov.shape)
 
-    if blur_kernel % 2 == 0:
-        blur_kernel += 1
+    metrics = get_defocus_metrics(focus_model, fov.shape)
+    sigma_px = metrics["sigma_px"]
+    if sigma_px <= 0.12:
+        return fov, metrics
 
-    height, width = fov.shape[:2]
-    cache_key = (height, width, float(focus_radius_ratio), float(feather_ratio))
-    blur_weight = _RADIAL_MASK_CACHE.get(cache_key)
-    if blur_weight is None:
-        yy, xx = np.indices((height, width))
-        cx = (width - 1) / 2.0
-        cy = (height - 1) / 2.0
-        radius_scale = max(min(width, height) / 2.0, 1.0)
-        radius = np.sqrt((xx - cx) ** 2 + (yy - cy) ** 2) / radius_scale
+    kernel = max(3, int(np.ceil(sigma_px * 6)))
+    if kernel % 2 == 0:
+        kernel += 1
+    kernel = min(kernel, 121)
 
-        focus_radius = max(0.05, focus_radius_ratio)
-        sigma = max(0.08, feather_ratio)
-        radial_distance = np.clip(radius - focus_radius, 0.0, None)
-        blur_weight = 1.0 - np.exp(-(radial_distance ** 2) / (2.0 * sigma ** 2))
-        blur_weight = np.clip(blur_weight * 0.55, 0.0, 0.55).astype(np.float32)
-        _RADIAL_MASK_CACHE[cache_key] = blur_weight
-
-    blurred = cv2.GaussianBlur(fov, (blur_kernel, blur_kernel), sigmaX=0.0, sigmaY=0.0)
-    source = fov.astype(np.float32)
-    softened = blurred.astype(np.float32)
-
-    if fov.ndim == 2:
-        blended = source * (1.0 - blur_weight) + softened * blur_weight
-    else:
-        weight = blur_weight[..., None]
-        blended = source * (1.0 - weight) + softened * weight
-
-    return np.clip(blended, 0, 255).astype(fov.dtype)
+    blurred = cv2.GaussianBlur(fov, (kernel, kernel), sigmaX=sigma_px, sigmaY=sigma_px)
+    return blurred, metrics

@@ -89,7 +89,15 @@ class AFMAnimation:
             self.state.fov_height,
         )
         self.state.current_fov_raw = fov.copy()
-        display_fov = render_camera_frame(fov, self.state.camera_resolution, outside_mask=outside_mask)
+        display_fov, focus_metrics = render_camera_frame(
+            fov,
+            self.state.camera_resolution,
+            outside_mask=outside_mask,
+            focus_model=self.state.get_focus_model(),
+        )
+        self.state.last_blur_diameter_um = focus_metrics["blur_diameter_um"]
+        self.state.last_blur_sigma_px = focus_metrics["sigma_px"]
+        self.state.last_dof_camera_um = focus_metrics["dof_camera_um"]
         display_fov = rotate_camera_frame(display_fov, self.state.surface_tilt_angle)
 
         self.img.set_data(display_fov)
@@ -118,7 +126,6 @@ class AFMAnimation:
     def _handle_zoom(self):
         self.state.zoom_progress += 1
         alpha = self.state.zoom_progress / self.state.zoom_steps
-        scale = 1 - 0.5 * alpha if self.state.zoom_direction == 1 else 1 + 0.5 * alpha
 
         if self.state.zoom_center_x is None or self.state.zoom_center_y is None:
             self.state.zoom_center_x = self.state.x + self.state.fov_width / 2.0
@@ -128,13 +135,13 @@ class AFMAnimation:
 
         base_width = self.state.zoom_base_width or self.state.fov_width
         base_height = self.state.zoom_base_height or self.state.fov_height
+        target_width = self.state.zoom_target_width or self.state.fov_width
+        target_height = self.state.zoom_target_height or self.state.fov_height
         center_x = self.state.zoom_center_x
         center_y = self.state.zoom_center_y
 
-        scale = min(scale, self.state.max_zoom_out_scale)
-
-        new_width = max(50, int(round(base_width * scale)))
-        new_height = max(50, int(round(base_height * scale)))
+        new_width = max(50, int(round(base_width + (target_width - base_width) * alpha)))
+        new_height = max(50, int(round(base_height + (target_height - base_height) * alpha)))
         x_new = center_x - new_width / 2.0
         y_new = center_y - new_height / 2.0
         fov, outside_mask, ix, iy = create_stage_fov(
@@ -147,7 +154,15 @@ class AFMAnimation:
             new_height,
         )
         self.state.current_fov_raw = fov.copy()
-        display_fov = render_camera_frame(fov, self.state.camera_resolution, outside_mask=outside_mask)
+        display_fov, focus_metrics = render_camera_frame(
+            fov,
+            self.state.camera_resolution,
+            outside_mask=outside_mask,
+            focus_model=self.state.get_focus_model(),
+        )
+        self.state.last_blur_diameter_um = focus_metrics["blur_diameter_um"]
+        self.state.last_blur_sigma_px = focus_metrics["sigma_px"]
+        self.state.last_dof_camera_um = focus_metrics["dof_camera_um"]
         display_fov = rotate_camera_frame(display_fov, self.state.surface_tilt_angle)
         self.img.set_data(display_fov)
         self.img.set_extent([x_new, x_new+new_width, y_new+new_height, y_new])
@@ -158,6 +173,7 @@ class AFMAnimation:
             self.state.zoom_progress = 0
             self.state.x, self.state.y = x_new, y_new
             self.state.fov_width, self.state.fov_height = new_width, new_height
+            self.state.current_zoom_level = int(self.state.target_zoom_level)
             # Optical zoom should not trigger any mechanical catch-up motion afterward.
             self.state.target_x = self.state.x
             self.state.target_y = self.state.y
@@ -174,6 +190,8 @@ class AFMAnimation:
             self.state.zoom_base_height = None
             self.state.zoom_center_x = None
             self.state.zoom_center_y = None
+            self.state.zoom_target_width = None
+            self.state.zoom_target_height = None
 
     def _update_scale_bar(self, x_origin, y_origin, fov_width, fov_height):
         if self.scale_bar_black is None or self.scale_bar_white is None or self.scale_bar_text is None:

@@ -11,7 +11,7 @@ from afm_callbacks import AFMCallbacks
 from afm_data import TrajectoryData
 from afm_state import AFMState
 from afm_ui import setup_dashboard, setup_figure, setup_probe_graphics
-from afm_utils import create_stage_fov, get_tip_position, render_camera_frame, rotate_camera_frame, update_title
+from afm_utils import create_stage_fov, get_defocus_metrics, get_tip_position, render_camera_frame, rotate_camera_frame, update_title
 from hysteresis import NanoPositioner
 from sample_generation import artifact_layer, height_um, sample as stage_surface_image, width_um
 
@@ -215,7 +215,12 @@ initial_fov, initial_outside_mask, initial_ix, initial_iy = create_stage_fov(
 state.current_fov_raw = initial_fov.copy()
 img = ax.imshow(
     rotate_camera_frame(
-        render_camera_frame(initial_fov, state.camera_resolution, outside_mask=initial_outside_mask),
+        render_camera_frame(
+            initial_fov,
+            state.camera_resolution,
+            outside_mask=initial_outside_mask,
+            focus_model=state.get_focus_model(),
+        )[0],
         state.surface_tilt_angle,
     ),
     cmap="gray",
@@ -280,18 +285,28 @@ def refresh_status_panel():
         pos_rel_line = "Pos Rel: not set"
         tgt_rel_line = "Tgt Rel: not set"
 
+    digital_zoom = state.get_digital_zoom_level()
+    optical_mag = state.get_current_objective_magnification()
+    focus_metrics = get_defocus_metrics(state.get_focus_model(), (state.camera_resolution[1], state.camera_resolution[0]))
+
     lines = [
         f"Surface: {state.sample_source}",
         f"Image  : {Path(state.sample_path).name if state.sample_path else 'synthetic surface'}",
         f"Camera : {state.camera_mode}",
+        f"Zoom   : {digital_zoom:7.0f}x",
+        f"Obj    : {optical_mag:7.0f}x",
         f"Live   : {state.camera_resolution[0]} x {state.camera_resolution[1]} px",
         f"Ref HW : {state.camera_reference_resolution[0]} x {state.camera_reference_resolution[1]} px",
+        f"Aux Cam: {state.sample_view_camera_resolution[0]} x {state.sample_view_camera_resolution[1]} px",
         f"Pos Ctr: X={pos_center_x:7.1f}  Y={pos_center_y:7.1f}",
         f"Tgt Ctr: X={target_center_x:7.1f}  Y={target_center_y:7.1f}",
         origin_line,
         pos_rel_line,
         tgt_rel_line,
         f"Step   : {state.current_step:7.1f} um",
+        f"Z Stage: {state.z_stage_position_um:+7.1f} um",
+        f"Focus  : {state.focus_z_um:+7.1f} um  DOF={focus_metrics['dof_camera_um']:5.2f} um",
+        f"Blur   : {focus_metrics['blur_diameter_um']:7.2f} um  {focus_metrics['blur_diameter_px']:6.2f} px",
         f"Smooth : {state.smooth_move_step:7.1f} um/frame",
         f"Tilt   : {state.surface_tilt_angle:7.1f} deg",
         f"Scan   : {'ON' if state.auto_scan_active else 'OFF'}",
@@ -424,6 +439,9 @@ button_objects["data_collect"].on_clicked(callbacks.start_data_collection)
 
 button_objects["zoom_in"].on_clicked(callbacks.zoom_in)
 button_objects["zoom_out"].on_clicked(callbacks.zoom_out)
+button_objects["z_down"].on_clicked(callbacks.move_z_down)
+button_objects["z_up"].on_clicked(callbacks.move_z_up)
+button_objects["focus_reset"].on_clicked(callbacks.reset_focus)
 button_objects["load_default"].on_clicked(callbacks.load_default_image)
 button_objects["load_image"].on_clicked(callbacks.load_sample_image)
 button_objects["save_default"].on_clicked(callbacks.save_current_as_default)

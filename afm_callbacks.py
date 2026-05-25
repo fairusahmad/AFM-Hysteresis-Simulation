@@ -116,6 +116,29 @@ class AFMCallbacks:
         self.state.smooth_move_target_x = target_x
         self.state.smooth_move_target_y = target_y
 
+    def _begin_quantized_zoom(self, target_zoom_level):
+        target_zoom_level = int(np.clip(target_zoom_level, self.state.min_zoom_level, self.state.max_zoom_level))
+        if self.state.zooming:
+            self.log("Zoom already in progress")
+            return
+        if target_zoom_level == int(self.state.current_zoom_level):
+            self.log(f"Zoom already at {target_zoom_level}x")
+            return
+
+        self.state.zooming = True
+        self.state.zoom_progress = 0
+        self.state.zoom_direction = 1 if target_zoom_level > self.state.current_zoom_level else -1
+        self.state.zoom_base_width = self.state.fov_width
+        self.state.zoom_base_height = self.state.fov_height
+        self.state.zoom_target_width, self.state.zoom_target_height = self.state.get_fov_for_zoom_level(target_zoom_level)
+        self.state.target_zoom_level = target_zoom_level
+        self.state.zoom_center_x = self.state.x + self.state.fov_width / 2.0
+        self.state.zoom_center_y = self.state.y + self.state.fov_height / 2.0
+
+    def _clamp_z_stage(self, z_position_um):
+        half_travel = float(self.state.z_stage_travel_um) / 2.0
+        return float(np.clip(z_position_um, -half_travel, half_travel))
+
     def get_position_center(self):
         return (
             float(self.state.x + self.state.fov_width / 2.0),
@@ -180,8 +203,9 @@ class AFMCallbacks:
         if sample_path:
             self.state.default_image_path = str(sample_path)
 
-        self.state.fov_width = max(50, int(self.state.fov_width))
-        self.state.fov_height = max(50, int(self.state.fov_height))
+        self.state.current_zoom_level = 1
+        self.state.target_zoom_level = 1
+        self.state.fov_width, self.state.fov_height = self.state.get_fov_for_zoom_level(self.state.current_zoom_level)
         self.state.x = (self.state.width_um - self.state.fov_width) / 2.0
         self.state.y = (self.state.height_um - self.state.fov_height) / 2.0
         self.state.target_x = self.state.x
@@ -271,7 +295,15 @@ class AFMCallbacks:
             self.state.fov_height,
         )
         self.state.current_fov_raw = fov.copy()
-        display_fov = render_camera_frame(fov, self.state.camera_resolution, outside_mask=outside_mask)
+        display_fov, focus_metrics = render_camera_frame(
+            fov,
+            self.state.camera_resolution,
+            outside_mask=outside_mask,
+            focus_model=self.state.get_focus_model(),
+        )
+        self.state.last_blur_diameter_um = focus_metrics["blur_diameter_um"]
+        self.state.last_blur_sigma_px = focus_metrics["sigma_px"]
+        self.state.last_dof_camera_um = focus_metrics["dof_camera_um"]
         display_fov = rotate_camera_frame(display_fov, self.state.surface_tilt_angle)
         self.img.set_data(display_fov)
         self.img.set_extent([ix, ix + self.state.fov_width, iy + self.state.fov_height, iy])
@@ -569,28 +601,31 @@ class AFMCallbacks:
         self.update_title()
 
     def zoom_in(self, event):
-        if self.state.zooming:
-            self.log("Zoom already in progress")
-            return
-        self.state.zooming = True
-        self.state.zoom_direction = 1
-        self.state.zoom_progress = 0
-        self.state.zoom_base_width = self.state.fov_width
-        self.state.zoom_base_height = self.state.fov_height
-        self.state.zoom_center_x = self.state.x + self.state.fov_width / 2.0
-        self.state.zoom_center_y = self.state.y + self.state.fov_height / 2.0
+        self._begin_quantized_zoom(int(self.state.current_zoom_level) + 1)
 
     def zoom_out(self, event):
-        if self.state.zooming:
-            self.log("Zoom already in progress")
-            return
-        self.state.zooming = True
-        self.state.zoom_direction = -1
-        self.state.zoom_progress = 0
-        self.state.zoom_base_width = self.state.fov_width
-        self.state.zoom_base_height = self.state.fov_height
-        self.state.zoom_center_x = self.state.x + self.state.fov_width / 2.0
-        self.state.zoom_center_y = self.state.y + self.state.fov_height / 2.0
+        self._begin_quantized_zoom(int(self.state.current_zoom_level) - 1)
+
+    def move_z_up(self, event):
+        self.state.z_stage_position_um = self._clamp_z_stage(self.state.z_stage_position_um + self.state.z_stage_step_um)
+        self._refresh_current_view()
+        self.log(
+            f"Z stage moved to {self.state.z_stage_position_um:+.1f} um "
+            f"(focus offset {self.state.z_stage_position_um - self.state.focus_z_um:+.1f} um)"
+        )
+
+    def move_z_down(self, event):
+        self.state.z_stage_position_um = self._clamp_z_stage(self.state.z_stage_position_um - self.state.z_stage_step_um)
+        self._refresh_current_view()
+        self.log(
+            f"Z stage moved to {self.state.z_stage_position_um:+.1f} um "
+            f"(focus offset {self.state.z_stage_position_um - self.state.focus_z_um:+.1f} um)"
+        )
+
+    def reset_focus(self, event):
+        self.state.z_stage_position_um = float(self.state.focus_z_um)
+        self._refresh_current_view()
+        self.log(f"Z stage returned to best focus at {self.state.focus_z_um:.1f} um")
 
     def show_tip_coord(self, event):
         tip_x, tip_y = self.get_tip()
